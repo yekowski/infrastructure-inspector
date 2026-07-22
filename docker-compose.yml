@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgis:
+    image: postgis/postgis:15-3.4
+    container_name: postgis_inspector
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: inspector_db
+      POSTGRES_PASSWORD: supersecret
+      POSTGRES_USER: postgres
+    volumes:
+      - ./init-scripts:/docker-entrypoint-initdb.d
+      - postgis_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgis_data:

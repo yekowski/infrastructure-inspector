@@ -1,0 +1,79 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script, etc.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nosenv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+vulture_cache/
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+nonlocal_env/
+active_env/
+
+# IDE / Editor Configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Streamlit Configurations
+.streamlit/
+
+# YOLO & Ultralytics Training Weights, Runs & Cache
+*.pt
+runs/
+models/.cache/
+
+# VisionInspect AI Platform Outputs
+inspections_map.html
+ticket_*.pdf
+annotated_*.jpg
+annotated_*.png
+tests/ground_truth/
