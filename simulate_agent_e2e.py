@@ -51,62 +51,77 @@ def run_image_analysis(image_path):
         
     print(f" -> Raw Output:\n{result.stdout.strip()}")
     
-    # Extract the VISION PAYLOAD string
-    payload_line = None
+    # Extract the JSON payload line
+    json_line = None
     for line in result.stdout.splitlines():
-        if "VISION PAYLOAD:" in line:
-            payload_line = line
+        if line.startswith("JSON PAYLOAD:"):
+            json_line = line.replace("JSON PAYLOAD:", "").strip()
             break
             
-    if not payload_line:
-        print("Error: Could not find VISION PAYLOAD line in output.", file=sys.stderr)
+    if not json_line:
+        print("Error: Could not find JSON PAYLOAD line in output.", file=sys.stderr)
         sys.exit(1)
         
-    print(f" -> Captured Payload: '{payload_line}'")
-    return payload_line
+    print(f" -> Captured Payload: '{json_line}'")
+    return json_line
 
-def simulate_agent_routing(payload_string):
+def simulate_agent_routing(json_payload_str):
     print("\nStep 3: Simulating agent decision and routing logic...")
     print(" -> Parsing payload fields...")
     
-    # Regex parse:
-    # VISION PAYLOAD: Image {name} analyzed. Crack width: {width}mm. Status: {status}. Coordinates: {lon}, {lat}.
-    pattern = r"VISION PAYLOAD:\s*Image\s*(?P<name>[\w\.\-]+)\s*analyzed\.\s*Crack width:\s*(?P<width>[\d\.]+)mm\.\s*Status:\s*(?P<status>[^.]+)\.\s*Coordinates:\s*(?P<lon>[\-\d\.]+),\s*(?P<lat>[\-\d\.]+)\."
-    match = re.search(pattern, payload_string)
-    
-    if not match:
-        print("Error: Payload string format does not match regex pattern.", file=sys.stderr)
+    try:
+        json_data = json.loads(json_payload_str)
+    except Exception as e:
+        print(f"Error parsing JSON payload: {e}", file=sys.stderr)
         sys.exit(1)
         
-    data = match.groupdict()
     print("Parsed Data:")
-    print(json.dumps(data, indent=2))
+    print(json.dumps(json_data, indent=2))
     
-    lon = float(data["lon"])
-    lat = float(data["lat"])
-    width = float(data["width"])
-    status = data["status"]
+    lon = float(json_data["lon"])
+    lat = float(json_data["lat"])
+    width = float(json_data["crack_width_mm"])
+    status = json_data["status"]
+    severity = json_data["severity"]
+    spalling_area = json_data["spalling_area_mm2"]
+    crack_type = json_data.get("crack_type", "Radial Floor Crack")
+    maintenance_action = json_data.get("maintenance_action")
+    uncertainty = json_data.get("uncertainty_mm")
     
-    # Agent Action Selection based on rules
-    print(f" -> Evaluation: Status is '{status}', Crack width = {width}mm")
+    print(f" -> Evaluation: Status is '{status}', Severity is '{severity}', Crack width = {width}mm, Spalling area = {spalling_area}mm2")
     
     actions = []
     # Always log to database
     actions.append("log_database")
     
     if status == "Requires PDF ticket" or width > 2.0:
-        print(" -> Action Trigger: Crack width exceeds 2.0mm. Agent routes to BOTH Log and PDF generation.")
+        print(" -> Action Trigger: Severity triggers PDF ticket. Agent routes to BOTH Log and PDF generation.")
         actions.append("generate_pdf")
     else:
-        print(" -> Action Trigger: Crack width <= 2.0mm. Agent routes to Log only.")
+        print(" -> Action Trigger: Severity does not warrant PDF. Agent routes to Log only.")
+        
+    if "Spalling" in crack_type and "Crack" not in crack_type:
+        notes = f"Spalling Area: {spalling_area} mm². Action: {maintenance_action}"
+    elif "Crack" in crack_type and "Spalling" not in crack_type:
+        notes = f"COD Width: {width}mm ±{uncertainty}mm. Action: {maintenance_action}"
+    else:
+        notes = f"COD Width: {width}mm ±{uncertainty}mm. Spalling Area: {spalling_area} mm². Action: {maintenance_action}"
         
     return actions, {
         "ticket_id": "TK-CV-01",
         "inspector_name": "CV Pipeline",
         "status": status,
+        "severity": severity,
         "lon": lon,
         "lat": lat,
-        "notes": f"Vision analysis completed for image {data['name']}. Detected crack width: {width}mm."
+        "notes": notes,
+        "crack_type": crack_type,
+        "crack_width": f"{width}mm",
+        "uncertainty": f"±{uncertainty}mm",
+        "confidence": f"{json_data.get('confidence_pct', 92.4)}%",
+        "priority": json_data.get("priority", "High"),
+        "maintenance_action": maintenance_action,
+        "spalling_area": f"{spalling_area} mm²"
     }
 
 def execute_agent_actions(actions, params):
@@ -141,10 +156,17 @@ def execute_agent_actions(actions, params):
             "--output-path", pdf_path,
             "--ticket-id", params["ticket_id"],
             "--inspector-name", params["inspector_name"],
-            "--status", params["status"],
+            "--status", params["severity"],
             "--lon", str(params["lon"]),
             "--lat", str(params["lat"]),
-            "--notes", params["notes"]
+            "--notes", params["notes"],
+            "--crack-type", params.get("crack_type", "Radial Floor Crack"),
+            "--crack-width", params.get("crack_width", "0.0mm"),
+            "--uncertainty", params.get("uncertainty", "±0.02mm"),
+            "--confidence", params.get("confidence", "92.4%"),
+            "--priority", params.get("priority", "High"),
+            "--maintenance-action", params.get("maintenance_action", "Immediate structural evaluation"),
+            "--spalling-area", params.get("spalling_area", "0.0 mm²")
         ]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         if result.returncode == 0:

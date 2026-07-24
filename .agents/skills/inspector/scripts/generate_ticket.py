@@ -105,17 +105,35 @@ def generate_pdf_ticket(output_path: str, ticket_data: dict):
     story.append(Spacer(1, 10))
     
     # Structural Table Data
+    defect_type = ticket_data.get('crack_type', 'Radial Floor Crack')
     data = [
         [Paragraph("Inspector Name:", label_style), Paragraph(str(ticket_data.get('inspector_name', 'N/A')), value_style)],
         [Paragraph("Status Severity:", label_style), Paragraph(str(ticket_data.get('status', 'N/A')), value_style)],
         [Paragraph("Priority Level:", label_style), Paragraph(str(ticket_data.get('priority', 'High')), value_style)],
-        [Paragraph("Defect Type:", label_style), Paragraph(str(ticket_data.get('crack_type', 'Radial Floor Crack')), value_style)],
-        [Paragraph("Measured Crack Width:", label_style), Paragraph(f"{ticket_data.get('crack_width', '0.45mm')} (Uncertainty: {ticket_data.get('uncertainty', '±0.05mm')})", value_style)],
+        [Paragraph("Defect Type:", label_style), Paragraph(str(defect_type), value_style)],
+    ]
+    
+    if "Spalling" in defect_type and "Crack" not in defect_type:
+        sp_area = ticket_data.get('spalling_area', '0.0')
+        if not sp_area.endswith("mm²") and not sp_area.endswith("mm2") and sp_area:
+            sp_area = f"{sp_area} mm²"
+        data.append([Paragraph("Spalling Area:", label_style), Paragraph(sp_area if sp_area else "0.0 mm²", value_style)])
+    elif "Crack" in defect_type and "Spalling" not in defect_type:
+        data.append([Paragraph("Measured Crack Width:", label_style), Paragraph(f"{ticket_data.get('crack_width', '0.0mm')} (Uncertainty: {ticket_data.get('uncertainty', '±0.02mm')})", value_style)])
+    else:
+        # Both or none
+        data.append([Paragraph("Measured Crack Width:", label_style), Paragraph(f"{ticket_data.get('crack_width', '0.0mm')} (Uncertainty: {ticket_data.get('uncertainty', '±0.02mm')})", value_style)])
+        sp_area = ticket_data.get('spalling_area', '0.0')
+        if not sp_area.endswith("mm²") and not sp_area.endswith("mm2") and sp_area:
+            sp_area = f"{sp_area} mm²"
+        data.append([Paragraph("Spalling Area:", label_style), Paragraph(sp_area if sp_area else "0.0 mm²", value_style)])
+        
+    data.extend([
         [Paragraph("Detection Confidence:", label_style), Paragraph(str(ticket_data.get('confidence', '92.4%')), value_style)],
         [Paragraph("Coordinates (Lon, Lat):", label_style), Paragraph(f"{ticket_data.get('lon', 0.0)}, {ticket_data.get('lat', 0.0)}", value_style)],
         [Paragraph("Recommended Maintenance:", label_style), Paragraph(str(ticket_data.get('maintenance_action', 'N/A')), value_style)],
         [Paragraph("Technician Notes:", label_style), Paragraph(str(ticket_data.get('notes', 'N/A')), value_style)]
-    ]
+    ])
     
     t = Table(data, colWidths=[160, 390])
     t.setStyle(TableStyle([
@@ -151,6 +169,7 @@ def main():
     parser.add_argument("--confidence", default="92.4%", help="Detection model confidence score")
     parser.add_argument("--priority", default="High", help="Priority level")
     parser.add_argument("--maintenance-action", default="Immediate structural evaluation", help="Recommended action")
+    parser.add_argument("--spalling-area", default="", help="Measured spalling area in mm2")
     
     args = parser.parse_args()
     
@@ -164,11 +183,12 @@ def main():
         "lat": args.lat,
         "notes": args.notes,
         "crack_type": args.crack_type,
-        "crack_width": args.crack_width if args.crack_width else "0.45mm",
+        "crack_width": args.crack_width if args.crack_width else "0.05mm",
         "uncertainty": args.uncertainty,
         "confidence": args.confidence,
         "priority": args.priority,
-        "maintenance_action": args.maintenance_action
+        "maintenance_action": args.maintenance_action,
+        "spalling_area": args.spalling_area
     }
     
     generate_pdf_ticket(args.output_path, ticket_data)
