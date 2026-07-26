@@ -427,19 +427,18 @@ with tab2:
     env = load_env_vars()
     
     if not os.path.exists(MAP_FILE):
-                                with st.spinner("Map file not found. Generating initial inspections map..."):
-                                    res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-                                    if res.returncode != 0:
-                                        st.error("⚠️ **Database Connection Failed**: Map generation failed because the Supabase Cloud PostgreSQL database is unreachable.")
-                                    
-                            if st.button("Refresh Map from Database"):
-                                with st.spinner("Updating map markers with latest records..."):
-                                    res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-                                    if res.returncode == 0:
-                                        st.success("Map refreshed successfully!")
-                                    else:
-                                        st.error("⚠️ **Database Connection Failed**: Map refresh failed because the Supabase Cloud PostgreSQL database is unreachable.")
+        with st.spinner("Map file not found. Generating initial inspections map..."):
+            res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            if res.returncode != 0:
+                st.error("⚠️ **Database Connection Failed**: Map generation failed because the Supabase Cloud PostgreSQL database is unreachable.")
             
+    if st.button("Refresh Map from Database"):
+        with st.spinner("Updating map markers with latest records..."):
+            res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            if res.returncode == 0:
+                st.success("Map refreshed successfully!")
+            else:
+                st.error("⚠️ **Database Connection Failed**: Map refresh failed because the Supabase Cloud PostgreSQL database is unreachable.")
     if os.path.exists(MAP_FILE):
         with open(MAP_FILE, 'r') as f:
             html_data = f.read()
