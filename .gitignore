@@ -68,6 +68,7 @@ active_env/
 
 # YOLO & Ultralytics Training Weights, Runs & Cache
 *.pt
+!models/*.pt
 runs/
 models/.cache/
 
