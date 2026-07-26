@@ -227,7 +227,7 @@ with tab1:
             
         if run_analysis:
             with st.spinner("Executing Deep Learning Instance Segmentation (YOLOv8-seg), OpenCV Skeletonization, Distance Transform, and Annotating Image..."):
-                cmd = ["python3", ANALYZE_SCRIPT, "--image-path", temp_path, "--output-dir", temp_dir]
+                cmd = [sys.executable, ANALYZE_SCRIPT, "--image-path", temp_path, "--output-dir", temp_dir]
                 if ref_marker_mm > 0.0:
                     cmd.extend(["--reference-marker-width-mm", str(ref_marker_mm)])
                 if computed_gsd is not None:
@@ -327,7 +327,7 @@ with tab1:
                             # 1. Log DB
                             with st.spinner("Logging to PostGIS database..."):
                                 db_cmd = [
-                                    "python3", LOG_SCRIPT,
+                                    sys.executable, LOG_SCRIPT,
                                     "--ticket-id", ticket_id,
                                     "--inspector-name", "Streamlit Civil Intake",
                                     "--status", status,
@@ -350,7 +350,7 @@ with tab1:
                             with st.spinner("Generating ReportLab PDF work order ticket..."):
                                 pdf_path = os.path.join(WORKSPACE_DIR, f"ticket_{ticket_id}.pdf")
                                 pdf_cmd = [
-                                    "python3", TICKET_SCRIPT,
+                                    sys.executable, TICKET_SCRIPT,
                                     "--output-path", pdf_path,
                                     "--ticket-id", ticket_id,
                                     "--inspector-name", "Streamlit Civil Intake",
@@ -398,7 +398,7 @@ with tab1:
                             if submit_override:
                                 with st.spinner("Logging manual override record to PostGIS database..."):
                                     db_cmd = [
-                                        "python3", LOG_SCRIPT,
+                                        sys.executable, LOG_SCRIPT,
                                         "--ticket-id", f"{ticket_id}-OVR",
                                         "--inspector-name", override_inspector,
                                         "--status", override_status,
@@ -428,13 +428,13 @@ with tab2:
     
     if not os.path.exists(MAP_FILE):
         with st.spinner("Map file not found. Generating initial inspections map..."):
-            res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            res = subprocess.run([sys.executable, MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
             if res.returncode != 0:
                 st.error("⚠️ **Database Connection Failed**: Map generation failed because the Supabase Cloud PostgreSQL database is unreachable.")
             
     if st.button("Refresh Map from Database"):
         with st.spinner("Updating map markers with latest records..."):
-            res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            res = subprocess.run([sys.executable, MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
             if res.returncode == 0:
                 st.success("Map refreshed successfully!")
             else:
