@@ -128,7 +128,7 @@ def execute_agent_actions(actions, params):
     print("\nStep 4: Executing routed tools as the agent...")
     
     env = os.environ.copy()
-    env["DB_CONN_STR"] = "postgresql://postgres:supersecret@localhost:5433/inspector_db"
+    env["DB_CONN_STR"] = "postgresql://postgres.iqilvtabnquonnoylprh:tudhak-0roCto-poxcef@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
     
     if "log_database" in actions:
         print(" -> Triggering database logging tool (log_inspection.py)...")
@@ -178,23 +178,26 @@ def execute_agent_actions(actions, params):
 
 def verify_live_database_records():
     print("\nStep 5: Querying live PostGIS database to verify coordinates (-75.25, 45.5)...")
-    cmd = [
-        "docker", "exec", "postgis_inspector",
-        "psql", "-U", "postgres", "-d", "inspector_db",
-        "-c", "SELECT ticket_id, inspector_name, status, ST_AsText(geom) FROM inspection_logs WHERE ticket_id = 'TK-CV-01';"
-    ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if result.returncode == 0:
-        print(f"Database Query Output:\n{result.stdout.strip()}")
-        # Check if coordinates match
-        if "-75.25 45.5" in result.stdout:
-            print(" -> [VERIFIED] Live coordinates (-75.25, 45.5) successfully written to database record!")
-            return True
-        else:
-            print(" -> [FAIL] DB Record coordinates do not match expected (-75.25, 45.5)!")
-            return False
-    else:
-        print(f" -> [FAIL] Database verification query failed: {result.stderr.strip()}", file=sys.stderr)
+    db_conn_str = "postgresql://postgres.iqilvtabnquonnoylprh:tudhak-0roCto-poxcef@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
+    try:
+        import psycopg2
+        with psycopg2.connect(db_conn_str) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT ticket_id, inspector_name, status, ST_AsText(geom) FROM inspection_logs WHERE ticket_id = 'TK-CV-01';")
+                row = cursor.fetchone()
+                if row:
+                    print(f"Database Query Output: {row}")
+                    if "-75.25 45.5" in row[3]:
+                        print(" -> [VERIFIED] Live coordinates (-75.25, 45.5) successfully written to database record!")
+                        return True
+                    else:
+                        print(" -> [FAIL] DB Record coordinates do not match expected (-75.25, 45.5)!")
+                        return False
+                else:
+                    print(" -> [FAIL] No record found in Supabase for ticket 'TK-CV-01'!")
+                    return False
+    except Exception as e:
+        print(f" -> [FAIL] Database verification query failed: {e}", file=sys.stderr)
         return False
 
 def main():
@@ -202,6 +205,18 @@ def main():
     print("Live End-to-End Agentic Integration Test")
     print("==================================================\n")
     
+    # Pre-test Database Cleanup: Delete existing TK-CV-01 from Supabase
+    db_conn_str = "postgresql://postgres.iqilvtabnquonnoylprh:tudhak-0roCto-poxcef@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require"
+    try:
+        import psycopg2
+        with psycopg2.connect(db_conn_str) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM inspection_logs WHERE ticket_id = 'TK-CV-01';")
+                conn.commit()
+                print(" -> [CLEANUP] Existing database record for 'TK-CV-01' deleted successfully.")
+    except Exception as e:
+        print(f" -> [CLEANUP] Database cleanup warning: {e}", file=sys.stderr)
+        
     # 1. Setup Image
     image_path = recreate_mock_image()
     

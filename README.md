@@ -7,7 +7,7 @@ VisionInspect AI is an enterprise-grade civil engineering pipeline designed for 
 ## 🚀 Core Platform Capabilities
 
 ### 1. YOLOv8 Instance Segmentation (`/vision`)
-- Uses domain-specific YOLOv8 segmentation weights (`models/crack_seg_best.pt`) to detect cracks and isolate structural defects.
+- Uses domain-specific YOLOv8 segmentation weights (`models/cracks_spalling_v1.pt`) to detect cracks and concrete spalling.
 - Extracts polygon masks using PyTorch CPU arrays (`masks.data.cpu().numpy()`) and converts them to standard OpenCV binary masks.
 
 ### 2. OpenCV Distance Transform Math (`/calibration`)

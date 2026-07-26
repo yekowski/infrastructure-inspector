@@ -340,7 +340,11 @@ with tab1:
                             if db_res.returncode == 0:
                                 st.success(f"✔ Database insertion complete! {db_res.stdout.strip()}")
                             else:
-                                st.error(f"✘ Database insertion failed! {db_res.stderr.strip()}")
+                                err_msg = db_res.stderr.strip()
+                                if "could not translate host name" in err_msg or "connection timeout" in err_msg or "timeout" in err_msg or "could not connect to server" in err_msg or "nodename nor servname provided" in err_msg:
+                                    st.error("⚠️ **Database Connection Failed**: Could not connect to Supabase Cloud PostgreSQL. The host may be unreachable or the connection timed out. Please verify that the database is active (not paused) and check your internet connection.")
+                                else:
+                                    st.error(f"✘ Database insertion failed: {err_msg}")
                                 
                             # 2. PDF Ticket
                             with st.spinner("Generating ReportLab PDF work order ticket..."):
@@ -408,7 +412,11 @@ with tab1:
                                     st.success(f"✔ Manual override record successfully logged to PostGIS! (overridden: true)")
                                     st.session_state["show_override_form"] = False
                                 else:
-                                    st.error(f"✘ Failed to log manual override record: {db_res.stderr.strip()}")
+                                    err_msg = db_res.stderr.strip()
+                                    if "could not translate host name" in err_msg or "connection timeout" in err_msg or "timeout" in err_msg or "could not connect to server" in err_msg or "nodename nor servname provided" in err_msg:
+                                        st.error("⚠️ **Database Connection Failed**: Could not connect to Supabase Cloud PostgreSQL. The host may be unreachable or the connection timed out. Please verify that the database is active (not paused) and check your internet connection.")
+                                    else:
+                                        st.error(f"✘ Failed to log manual override record: {err_msg}")
                 else:
                     st.code(stdout_str)
 
@@ -419,13 +427,18 @@ with tab2:
     env = load_env_vars()
     
     if not os.path.exists(MAP_FILE):
-        with st.spinner("Map file not found. Generating initial inspections map..."):
-            subprocess.run(["python3", MAP_SCRIPT], env=env)
-            
-    if st.button("Refresh Map from Database"):
-        with st.spinner("Updating map markers with latest records..."):
-            subprocess.run(["python3", MAP_SCRIPT], env=env)
-            st.success("Map refreshed successfully!")
+                                with st.spinner("Map file not found. Generating initial inspections map..."):
+                                    res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+                                    if res.returncode != 0:
+                                        st.error("⚠️ **Database Connection Failed**: Map generation failed because the Supabase Cloud PostgreSQL database is unreachable.")
+                                    
+                            if st.button("Refresh Map from Database"):
+                                with st.spinner("Updating map markers with latest records..."):
+                                    res = subprocess.run(["python3", MAP_SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+                                    if res.returncode == 0:
+                                        st.success("Map refreshed successfully!")
+                                    else:
+                                        st.error("⚠️ **Database Connection Failed**: Map refresh failed because the Supabase Cloud PostgreSQL database is unreachable.")
             
     if os.path.exists(MAP_FILE):
         with open(MAP_FILE, 'r') as f:

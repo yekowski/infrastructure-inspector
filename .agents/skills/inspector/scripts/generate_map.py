@@ -35,8 +35,18 @@ def query_inspections():
     """
     Queries inspection records from the database, extracting coordinates.
     """
+    has_config = os.environ.get("DB_CONN_STR") or (
+        os.environ.get("DB_HOST") and 
+        os.environ.get("DB_USER") and 
+        os.environ.get("DB_PASSWORD") and 
+        os.environ.get("DB_NAME")
+    )
+    
     conn = get_db_connection()
     if not conn:
+        if has_config and os.environ.get("DB_CONN_STR") != "mock_connection":
+            print("Error: Database connection failed while trying to refresh map.", file=sys.stderr)
+            sys.exit(3)
         print("[WARNING] Running in offline/mock database mode.", file=sys.stderr)
         return []
         

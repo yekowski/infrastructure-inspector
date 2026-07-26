@@ -77,6 +77,14 @@ def extract_exif_metadata(image_path):
         
     return focal_length, exif_width, subject_distance
 
+def calculate_gsd(physical_width_mm, pixel_distance):
+    """
+    Calculates dynamic GSD scale directly from the physical marker width (mm) and the drawn line pixel distance.
+    """
+    if pixel_distance <= 0.0:
+        raise ValueError("Pixel distance must be greater than zero.")
+    return physical_width_mm / pixel_distance
+
 def get_calibration_scale(image_path, image_width_px, reference_marker_width_mm=None):
     """
     Calculates GSD scale using the photogrammetry GSD formula:

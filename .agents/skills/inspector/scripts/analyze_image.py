@@ -29,6 +29,8 @@ def main():
     parser.add_argument("--image-path", required=True, help="Path to structural image file")
     parser.add_argument("--output-dir", default="", help="Directory to output annotated image")
     parser.add_argument("--reference-marker-width-mm", type=float, default=None, help="Known reference marker width in mm for physical calibration")
+    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold for YOLO segmentation model")
+    parser.add_argument("--gsd", type=float, default=None, help="Explicit GSD value to use for scale calibration")
     args = parser.parse_args()
     
     if not os.path.exists(args.image_path):
@@ -40,7 +42,9 @@ def main():
         json_data, payload_summary = run_pipeline(
             args.image_path,
             output_dir=output_dir,
-            reference_marker_width_mm=args.reference_marker_width_mm
+            reference_marker_width_mm=args.reference_marker_width_mm,
+            conf=args.conf,
+            gsd=args.gsd
         )
         
         # Output standard schema outputs expected by downstream services

@@ -77,3 +77,8 @@ ticket_*.pdf
 annotated_*.jpg
 annotated_*.png
 tests/ground_truth/
+
+# Local Datasets & Training Output
+datasets/
+runs/
+*.pt
