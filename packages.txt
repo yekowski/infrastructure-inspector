@@ -1,2 +1,1 @@
-libgl1-mesa-glx
-libglib2.0-0
+# Empty to prevent APT dependency resolution errors on Streamlit Cloud (Debian Trixie)
