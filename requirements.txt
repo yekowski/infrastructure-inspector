@@ -1,6 +1,5 @@
 streamlit
 ultralytics
-opencv-python-headless
 pillow
 reportlab
 psycopg2-binary
