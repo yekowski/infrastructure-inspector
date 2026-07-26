@@ -1,2 +1,7 @@
-# No additional third-party dependencies beyond core stack (streamlit, ultralytics, opencv-python, pillow, reportlab, psycopg2, folium).
-# The interactive calibration canvas uses Streamlit's built-in CCv2 (st.components.v2) — no external package needed.
+streamlit
+ultralytics
+opencv-python-headless
+pillow
+reportlab
+psycopg2-binary
+folium
