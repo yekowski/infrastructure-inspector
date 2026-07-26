@@ -13,7 +13,7 @@ import json
 import re
 from PIL import Image, ImageDraw
 
-WORKSPACE_DIR = "/Users/yekowski/agy2-projects/infrastructure-inspector"
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYZE_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/analyze_image.py")
 GT_DIR = os.path.join(WORKSPACE_DIR, "tests", "ground_truth")
 EVALS_FILE = os.path.join(WORKSPACE_DIR, "evals.json")

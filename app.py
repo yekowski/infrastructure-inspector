@@ -123,7 +123,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-WORKSPACE_DIR = "/Users/yekowski/agy2-projects/infrastructure-inspector"
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYZE_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/analyze_image.py")
 LOG_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/log_inspection.py")
 TICKET_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/generate_ticket.py")

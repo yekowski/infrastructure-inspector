@@ -25,7 +25,7 @@ def generate_pdf_ticket(output_path: str, ticket_data: dict):
     Renders the inspection PDF ticket using ReportLab with enriched civil engineering fields.
     """
     absolute_output_path = os.path.abspath(output_path)
-    workspace_dir = "/Users/yekowski/agy2-projects/infrastructure-inspector"
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     
     if not absolute_output_path.startswith(workspace_dir) and not absolute_output_path.startswith("/tmp"):
         print(f"Security Error: Output path '{output_path}' lies outside the allowed directory bounds.", file=sys.stderr)

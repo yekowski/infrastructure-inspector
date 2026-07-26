@@ -140,7 +140,7 @@ def generate_html_map(records, output_path):
     print(f"Successfully generated interactive HTML map at: {output_path}")
 
 def main():
-    workspace_dir = "/Users/yekowski/agy2-projects/infrastructure-inspector"
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     output_path = os.path.join(workspace_dir, "inspections_map.html")
     
     # 1. Fetch records
