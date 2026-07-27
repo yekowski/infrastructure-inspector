@@ -172,6 +172,36 @@ with tab1:
         with open(temp_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
+        # --- Image Pre-processing: Downsample to avoid OOM on Streamlit Cloud (1GB limit) ---
+        MAX_DIMENSION = 1600
+        img_preprocess = Image.open(temp_path)
+        orig_w, orig_h = img_preprocess.size
+        
+        if max(orig_w, orig_h) > MAX_DIMENSION:
+            # Preserve EXIF metadata (GPS coordinates are critical for the pipeline)
+            exif_data = img_preprocess.info.get("exif", None)
+            
+            # Calculate new dimensions preserving aspect ratio
+            if orig_w >= orig_h:
+                new_w = MAX_DIMENSION
+                new_h = int(orig_h * (MAX_DIMENSION / orig_w))
+            else:
+                new_h = MAX_DIMENSION
+                new_w = int(orig_w * (MAX_DIMENSION / orig_h))
+            
+            img_preprocess = img_preprocess.resize((new_w, new_h), Image.LANCZOS)
+            
+            # Save back with EXIF preserved
+            save_kwargs = {"format": "JPEG", "quality": 90}
+            if exif_data:
+                save_kwargs["exif"] = exif_data
+            img_preprocess.save(temp_path, **save_kwargs)
+            
+            st.caption(f"📐 Image downsampled: {orig_w}×{orig_h} → {new_w}×{new_h} px (max {MAX_DIMENSION}px to stay within memory limits)")
+        
+        img_preprocess.close()
+        # --- End Pre-processing ---
+            
         run_analysis = False
         computed_gsd = None
         
