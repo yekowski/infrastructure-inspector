@@ -7,7 +7,7 @@ from datetime import datetime
 import math
 import base64
 import io
-from PIL import Image
+from PIL import Image, ImageOps
 import streamlit as st
 
 # ── CCv2 inline drawable-line component ─────────────────────────────────────
@@ -172,10 +172,15 @@ with tab1:
         with open(temp_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # --- Image Pre-processing: Downsample to avoid OOM on Streamlit Cloud (1GB limit) ---
+        # --- Image Pre-processing: EXIF Transpose + Downsample ---
         MAX_DIMENSION = 1600
         img_preprocess = Image.open(temp_path)
+        
+        # Fix mobile orientation: apply EXIF rotation tag before any processing
+        img_preprocess = ImageOps.exif_transpose(img_preprocess)
+        
         orig_w, orig_h = img_preprocess.size
+        needs_save = False
         
         if max(orig_w, orig_h) > MAX_DIMENSION:
             # Preserve EXIF metadata (GPS coordinates are critical for the pipeline)
@@ -190,14 +195,19 @@ with tab1:
                 new_w = int(orig_w * (MAX_DIMENSION / orig_h))
             
             img_preprocess = img_preprocess.resize((new_w, new_h), Image.LANCZOS)
+            needs_save = True
             
-            # Save back with EXIF preserved
+            st.caption(f"📐 Image downsampled: {orig_w}×{orig_h} → {new_w}×{new_h} px (max {MAX_DIMENSION}px to stay within memory limits)")
+        else:
+            # Even if no resize needed, still save to bake in the EXIF transpose
+            exif_data = img_preprocess.info.get("exif", None)
+            needs_save = True
+        
+        if needs_save:
             save_kwargs = {"format": "JPEG", "quality": 90}
             if exif_data:
                 save_kwargs["exif"] = exif_data
             img_preprocess.save(temp_path, **save_kwargs)
-            
-            st.caption(f"📐 Image downsampled: {orig_w}×{orig_h} → {new_w}×{new_h} px (max {MAX_DIMENSION}px to stay within memory limits)")
         
         img_preprocess.close()
         # --- End Pre-processing ---
@@ -213,7 +223,8 @@ with tab1:
             img = Image.open(temp_path)
             orig_w, orig_h = img.size
             
-            display_width = 800
+            # Dynamic canvas sizing based on actual image aspect ratio
+            display_width = min(800, orig_w)
             scale_factor = display_width / orig_w
             display_height = int(orig_h * scale_factor)
             

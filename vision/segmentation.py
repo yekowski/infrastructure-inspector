@@ -46,25 +46,25 @@ def run_dl_instance_segmentation(image_path, image_cv, conf=0.25):
     
     for result in results:
         if result.masks is not None and result.boxes is not None:
-            # Extract the segmentation masks and box class labels
-            masks_np = result.masks.data.cpu().numpy()
+            # Extract the polygon coordinates in original image space and box classes
+            masks_xy = result.masks.xy
             box_classes = result.boxes.cls.cpu().numpy()
             
-            for i, mask_single in enumerate(masks_np):
+            for i, poly in enumerate(masks_xy):
                 if i < len(box_classes):
                     class_id = int(box_classes[i])
                     class_name = names_map.get(class_id, f"class_{class_id}")
                     
                     if class_name in masks_dict:
-                        # Resize mask to original image dimensions if necessary
-                        if mask_single.shape[:2] != (h_img, w_img):
-                            mask_resized = cv2.resize(mask_single, (w_img, h_img), interpolation=cv2.INTER_NEAREST)
-                        else:
-                            mask_resized = mask_single
+                        if len(poly) > 0:
+                            # Create a blank mask for this specific detection at original resolution
+                            poly_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+                            # Convert polygon coordinates to integer for cv2.fillPoly
+                            poly_pts = poly.astype(np.int32)
+                            cv2.fillPoly(poly_mask, [poly_pts], 255)
                             
-                        # Convert to standard OpenCV uint8 format by multiplying by 255
-                        mask_uint8 = (mask_resized * 255).astype(np.uint8)
-                        masks_dict[class_name] = np.maximum(masks_dict[class_name], mask_uint8)
+                            # Combine with the main mask dictionary
+                            masks_dict[class_name] = np.maximum(masks_dict[class_name], poly_mask)
                         
         if result.boxes is not None and len(result.boxes) > 0:
             conf_vals = result.boxes.conf.cpu().numpy()
