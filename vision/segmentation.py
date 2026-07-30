@@ -31,9 +31,9 @@ def run_dl_instance_segmentation(image_path, image_cv, conf=0.25):
     # Update YOLO model initialization to load custom weights: models/cracks_spalling_v1.pt
     model = YOLO(custom_model_path)
     
-    # Inference call with save=True enabled
+    # Inference call with save=True and retina_masks=True enabled
     output_dir = os.path.dirname(os.path.abspath(image_path))
-    results = model.predict(image_path, conf=conf, iou=0.45, save=True, project=output_dir, name="yolo_out", exist_ok=True, verbose=False)
+    results = model.predict(image_path, conf=conf, iou=0.45, save=True, project=output_dir, name="yolo_out", exist_ok=True, verbose=False, retina_masks=True)
     
     masks_dict = {
         'crack': np.zeros((h_img, w_img), dtype=np.uint8),
@@ -46,25 +46,19 @@ def run_dl_instance_segmentation(image_path, image_cv, conf=0.25):
     
     for result in results:
         if result.masks is not None and result.boxes is not None:
-            # Extract the polygon coordinates in original image space and box classes
-            masks_xy = result.masks.xy
+            # Extract raw high-resolution masks and box class labels
+            masks_np = result.masks.data.cpu().numpy()
             box_classes = result.boxes.cls.cpu().numpy()
             
-            for i, poly in enumerate(masks_xy):
+            for i, mask_single in enumerate(masks_np):
                 if i < len(box_classes):
                     class_id = int(box_classes[i])
                     class_name = names_map.get(class_id, f"class_{class_id}")
                     
                     if class_name in masks_dict:
-                        if len(poly) > 0:
-                            # Create a blank mask for this specific detection at original resolution
-                            poly_mask = np.zeros((h_img, w_img), dtype=np.uint8)
-                            # Convert polygon coordinates to integer for cv2.fillPoly
-                            poly_pts = poly.astype(np.int32)
-                            cv2.fillPoly(poly_mask, [poly_pts], 255)
-                            
-                            # Combine with the main mask dictionary
-                            masks_dict[class_name] = np.maximum(masks_dict[class_name], poly_mask)
+                        # Convert float/boolean mask to standard OpenCV uint8 format (0 or 255)
+                        mask_uint8 = (mask_single * 255).astype(np.uint8)
+                        masks_dict[class_name] = np.maximum(masks_dict[class_name], mask_uint8)
                         
         if result.boxes is not None and len(result.boxes) > 0:
             conf_vals = result.boxes.conf.cpu().numpy()
