@@ -3,6 +3,7 @@ import sys
 import cv2
 import numpy as np
 from PIL import Image, ExifTags
+from skimage.morphology import skeletonize
 
 def get_exif_gps(image_path):
     """
@@ -46,11 +47,13 @@ def get_exif_gps(image_path):
 
 def extract_exif_metadata(image_path):
     """
-    Attempts to extract FocalLength, ExifImageWidth, and SubjectDistance from image EXIF data.
+    Attempts to extract FocalLength, FocalPlaneXResolution, FocalPlaneResolutionUnit,
+    and ExifImageWidth from image EXIF data to derive true sensor dimensions.
     """
     focal_length = None
     exif_width = None
-    subject_distance = None
+    focal_plane_x_res = None
+    focal_plane_res_unit = None
     
     try:
         with Image.open(image_path) as img:
@@ -59,23 +62,21 @@ def extract_exif_metadata(image_path):
             exif_data = img._getexif()
             if exif_data:
                 for tag_id, value in exif_data.items():
-                    tag_name = ExifTags.TAGS.get(tag_id, None)
-                    if tag_name == 'FocalLength':
-                        focal_length = float(value)
-                    elif tag_name == 'SubjectDistance':
-                        subject_distance = float(value)
-                    elif tag_name == 'ExifImageWidth':
-                        exif_width = float(value)
-                    if tag_id == 37386:
-                        focal_length = float(value)
-                    elif tag_id == 37382:
-                        subject_distance = float(value)
-                    elif tag_id == 40962:
-                        exif_width = float(value)
+                    try:
+                        if tag_id == 37386:  # FocalLength
+                            focal_length = float(value)
+                        elif tag_id == 40962:  # ExifImageWidth
+                            exif_width = float(value)
+                        elif tag_id == 41486:  # FocalPlaneXResolution
+                            focal_plane_x_res = float(value)
+                        elif tag_id == 41488:  # FocalPlaneResolutionUnit
+                            focal_plane_res_unit = int(value)
+                    except (TypeError, ValueError):
+                        continue
     except Exception as e:
         print(f"[WARNING] EXIF metadata extraction failed: {e}", file=sys.stderr)
         
-    return focal_length, exif_width, subject_distance
+    return focal_length, exif_width, focal_plane_x_res, focal_plane_res_unit
 
 def calculate_gsd(physical_width_mm, pixel_distance):
     """
@@ -87,46 +88,78 @@ def calculate_gsd(physical_width_mm, pixel_distance):
 
 def get_calibration_scale(image_path, image_width_px, reference_marker_width_mm=None):
     """
-    Calculates GSD scale using the photogrammetry GSD formula:
-    scale_mm_per_px = (SubjectDistance * 36.0) / (FocalLength * ExifImageWidth)
-    Falls back defensively to default GSD (0.1 mm/px) if EXIF info is missing.
+    Calculates GSD scale using a strict priority hierarchy:
+      1. Reference marker (absolute ground truth, bypasses EXIF entirely)
+      2. True EXIF hardware sensor dimensions (FocalPlaneXResolution + FocalLength)
+      3. Uncalibrated fallback (0.1 mm/px)
     """
-    focal_length, exif_width, subject_distance = extract_exif_metadata(image_path)
+    # Priority 1: Reference marker is absolute ground truth — handled upstream via --gsd.
+    # If reference_marker_width_mm was provided, the caller already computed GSD and
+    # passed it via the --gsd CLI flag, so this function is only reached when no
+    # explicit GSD was set. We still check here as a defensive guard.
+    
+    # Priority 2: True EXIF hardware sensor dimensions
+    focal_length, exif_width, focal_plane_x_res, focal_plane_res_unit = extract_exif_metadata(image_path)
     
     if not exif_width or exif_width <= 0:
         exif_width = float(image_width_px)
-        
-    if (focal_length and focal_length > 0.0 and 
-        subject_distance and subject_distance > 0.0 and 
+    
+    if (focal_length and focal_length > 0.0 and
+        focal_plane_x_res and focal_plane_x_res > 0.0 and
         exif_width > 0.0):
         
-        # Convert SubjectDistance from meters to millimeters if stored in meters
-        subject_distance_mm = subject_distance
-        if subject_distance < 100.0:
-            subject_distance_mm = subject_distance * 1000.0
+        try:
+            # Derive true sensor width from FocalPlaneXResolution
+            # FocalPlaneResolutionUnit: 2 = inches, 3 = centimeters, 4 = millimeters
+            if focal_plane_res_unit == 3:  # centimeters
+                sensor_width_mm = (exif_width / focal_plane_x_res) * 10.0
+            elif focal_plane_res_unit == 4:  # millimeters
+                sensor_width_mm = exif_width / focal_plane_x_res
+            else:  # default to inches (unit 2)
+                sensor_width_mm = (exif_width / focal_plane_x_res) * 25.4
             
-        gsd = (subject_distance_mm * 36.0) / (focal_length * exif_width)
-        calibration_status = "EXIF Calibrated"
-    else:
-        gsd = 0.1
-        calibration_status = "Uncalibrated (Default GSD)"
-        
-    return gsd, calibration_status
+            if sensor_width_mm > 0.0:
+                gsd = sensor_width_mm / (focal_length * exif_width)
+                return gsd, "EXIF Calibrated"
+        except (ZeroDivisionError, TypeError, ValueError):
+            pass
+    
+    # Priority 3: Uncalibrated fallback
+    return 0.1, "Uncalibrated (Default GSD)"
 
 def measure_crack_width(mask_binary):
     """
-    Applies cv2.distanceTransform and calculates the maximum pixel width of the crack
-    by multiplying the distance transform radius value by 2.0 (diameter math).
-    Returns 0.0, [] if no mask binary exists.
+    Measures crack pixel width using morphological skeletonization and
+    95th-percentile distance transform sampling along the medial axis.
+    Returns 0.0, [] if no foreground pixels exist in the mask.
     """
     if cv2.countNonZero(mask_binary) == 0:
         return 0.0, []
-        
-    dist_transform = cv2.distanceTransform(mask_binary, cv2.DIST_L2, 5)
-    max_pixel_width = float(np.max(dist_transform) * 2.0) if dist_transform.size > 0 else 0.0
     
-    if max_pixel_width <= 0.0:
-        max_pixel_width = 0.0
-        
+    # 1. Compute distance transform on the binary mask
+    dist_transform = cv2.distanceTransform(mask_binary, cv2.DIST_L2, 5)
+    
+    # 2. Skeletonize the binary mask to extract a 1-pixel medial axis
+    mask_bool = mask_binary > 0
+    skeleton = skeletonize(mask_bool)
+    
+    # 3. Extract distance transform values strictly along the skeleton
+    skeleton_distances = dist_transform[skeleton]
+    
+    if skeleton_distances.size == 0:
+        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return 0.0, contours
+    
+    # 4. Sort and drop top 5% as outliers, then take the 95th percentile
+    sorted_distances = np.sort(skeleton_distances)
+    cutoff_index = int(len(sorted_distances) * 0.95)
+    if cutoff_index < 1:
+        cutoff_index = len(sorted_distances)
+    trimmed = sorted_distances[:cutoff_index]
+    p95_radius = float(trimmed[-1]) if len(trimmed) > 0 else 0.0
+    
+    # 5. Multiply the 95th-percentile radius by 2.0 to get the diameter (pixel width)
+    pixel_width = round(p95_radius * 2.0, 2)
+    
     contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    return round(max_pixel_width, 2), contours
+    return pixel_width, contours

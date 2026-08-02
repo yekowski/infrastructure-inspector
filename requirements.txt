@@ -5,3 +5,4 @@ pillow
 reportlab
 psycopg2-binary
 folium
+scikit-image
