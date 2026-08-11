@@ -483,6 +483,6 @@ with tab2:
     if os.path.exists(MAP_FILE):
         with open(MAP_FILE, 'r') as f:
             html_data = f.read()
-        st.html(f'<div style="height:650px;overflow:auto;">{html_data}</div>', unsafe_allow_javascript=True)
+        st.components.v1.html(html_data, height=650, scrolling=True)
     else:
         st.warning("Mapping visualization could not be generated. Please check your database settings.")
