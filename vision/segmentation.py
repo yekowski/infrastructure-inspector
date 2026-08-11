@@ -56,8 +56,8 @@ def run_dl_instance_segmentation(image_path, image_cv, conf=0.25):
                     class_name = names_map.get(class_id, f"class_{class_id}")
                     
                     if class_name in masks_dict:
-                        # Convert float/boolean mask to standard OpenCV uint8 format (0 or 255)
-                        mask_uint8 = (mask_single * 255).astype(np.uint8)
+                        # Threshold sigmoid mask at 0.5 then convert to OpenCV uint8 (0 or 255)
+                        mask_uint8 = ((mask_single > 0.5) * 255).astype(np.uint8)
                         masks_dict[class_name] = np.maximum(masks_dict[class_name], mask_uint8)
                         
         if result.boxes is not None and len(result.boxes) > 0:
