@@ -7,11 +7,17 @@ description: Perform PostGIS logging, PDF ticket generation, OpenCV image analys
 
 This manual documents the executable workflows and capabilities of the **VisionInspect AI** platform.
 
-To eliminate prompt-injection vulnerabilities and prevent hallucinated measurements or inline code execution, agents must NOT evaluate raw strings, invent measurement numbers, or write custom drawing scripts. Instead, agents must extract parameters and invoke the pre-compiled CLI helper tools provided in this workspace.
+To eliminate prompt-injection vulnerabilities and prevent hallucinated measurements or inline code execution, agents must NOT evaluate raw strings, invent measurement numbers, or write custom drawing scripts. Instead, agents must extract parameters and invoke the pre-compiled CLI helper tools provided in this workspace. All configuration parameters must be injected via environment variables, and all runtime errors and metrics must be emitted using structured JSON logging.
 
 ---
 
-## 1. Core Platform Workflows
+## 1. Core Architectural & Logging Standards
+* **Configuration**: The application configuration is injected dynamically via environment variables (e.g., `PERCENTILE_CUTOFF`, `WIDTH_MULTIPLIER`, `DEFAULT_GSD`) parsed by a centralized configuration utility (`config.py`).
+* **Structured Observability**: Standard print logging (`print()`) is prohibited for debugging or diagnostics. All workflow executions, warnings, and errors must be output as structured JSON logs via Python's built-in `logging` module.
+
+---
+
+## 2. Core Platform Workflows
 
 ### A. Skill: `analyze_concrete_defect`
 * **Trigger**: When analyzing an uploaded concrete photograph.
@@ -19,8 +25,8 @@ To eliminate prompt-injection vulnerabilities and prevent hallucinated measureme
   1. Initialize the YOLOv8 instance segmentation model loading the custom weights at `models/cracks_spalling_v1.pt`.
   2. Pass the input image through the model with `retina_masks=True` to extract high-resolution segmentation masks using `result.masks.data.cpu().numpy()`.
   3. Convert the detected mask to standard OpenCV `uint8` format by multiplying by `255`.
-  4. Apply `cv2.distanceTransform(mask, cv2.DIST_L2, 5)` to the converted mask to compute the Euclidean distance to the nearest background pixel.
-  5. Apply `skimage.morphology.skeletonize()` to the binary mask to extract a 1-pixel medial axis. Extract the distance transform values strictly along this skeleton line. Sort the extracted values, drop the top 5% as outliers, and take the 95th percentile value. Multiply this 95th-percentile radius by `2.0` to calculate the final crack pixel width.
+  4. Apply `cv2.distanceTransform(mask, cv2.DIST_L2, 5)` to the converted mask to compute the Euclidean distance to the nearest background pixel. Protect against mathematical anomalies by replacing NaNs/infinities using `np.nan_to_num()`.
+  5. Apply OpenCV's native thinning algorithm `cv2.ximgproc.thinning(mask)` to extract a 1-pixel medial axis, eliminating third-party dependency bloat. Extract the distance transform values along this thinned skeleton line. Sort the values, drop the top 5% as outliers (configured by `PERCENTILE_CUTOFF`), and calculate the final pixel width using `WIDTH_MULTIPLIER` applied to the target percentile.
   6. Apply morphological open/close cleaning and contours extraction.
 
 ### B. Skill: `calibrate_gsd_scale`
@@ -28,7 +34,7 @@ To eliminate prompt-injection vulnerabilities and prevent hallucinated measureme
 * **Procedure** (strict priority hierarchy):
   1. **Priority 1 — Reference Marker (absolute ground truth):** If `--reference-marker-width-mm` is provided, the GSD is calculated directly from the user-drawn calibration line pixel distance divided into the known physical width. EXIF extraction is bypassed entirely.
   2. **Priority 2 — True EXIF Hardware Dimensions:** If no reference marker is provided, attempt to parse `FocalPlaneXResolution` (tag 41486), `FocalPlaneResolutionUnit` (tag 41488), `FocalLength` (tag 37386), and `ExifImageWidth` (tag 40962). Derive the true sensor width in mm from `ExifImageWidth / FocalPlaneXResolution`, converting units based on `FocalPlaneResolutionUnit` (2=inches, 3=cm, 4=mm). Calculate GSD as `sensor_width_mm / (FocalLength × ExifImageWidth)`. Wrap all EXIF parsing in defensive `try/except` blocks and cast to floats.
-  3. **Priority 3 — Uncalibrated Fallback:** If EXIF hardware data is missing, incomplete, or parsing fails, fall back defensively to a default macro scale of `0.1` mm/px.
+  3. **Priority 3 — Uncalibrated Fallback:** If EXIF hardware data is missing, incomplete, or parsing fails, fall back defensively to the default GSD (configured via `DEFAULT_GSD`, defaulting to `0.1` mm/px).
   4. Save status label as `"Calibrated"`, `"EXIF Calibrated"`, or `"Uncalibrated (Default GSD)"`.
 
 ### C. Skill: `enforce_hitl_safety_gate`

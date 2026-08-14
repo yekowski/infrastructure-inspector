@@ -3,7 +3,9 @@ import sys
 import cv2
 import numpy as np
 from PIL import Image, ExifTags
-from skimage.morphology import skeletonize
+from config import PERCENTILE_CUTOFF, WIDTH_MULTIPLIER, DEFAULT_GSD, get_logger
+
+logger = get_logger(__name__)
 
 def get_exif_gps(image_path):
     """
@@ -41,7 +43,11 @@ def get_exif_gps(image_path):
                 lon = -lon
             return round(lon, 4), round(lat, 4)
     except Exception as e:
-        print(f"[WARNING] EXIF GPS extraction failed: {e}. Using default coordinates.", file=sys.stderr)
+        logger.warning(
+            "EXIF GPS extraction failed, using default coordinates",
+            exc_info=True,
+            extra={"default_coords": default_coords, "image_path": image_path}
+        )
         
     return default_coords
 
@@ -74,7 +80,11 @@ def extract_exif_metadata(image_path):
                     except (TypeError, ValueError):
                         continue
     except Exception as e:
-        print(f"[WARNING] EXIF metadata extraction failed: {e}", file=sys.stderr)
+        logger.warning(
+            "EXIF metadata extraction failed",
+            exc_info=True,
+            extra={"image_path": image_path}
+        )
         
     return focal_length, exif_width, focal_plane_x_res, focal_plane_res_unit
 
@@ -125,41 +135,70 @@ def get_calibration_scale(image_path, image_width_px, reference_marker_width_mm=
             pass
     
     # Priority 3: Uncalibrated fallback
-    return 0.1, "Uncalibrated (Default GSD)"
+    return DEFAULT_GSD, "Uncalibrated (Default GSD)"
 
 def measure_crack_width(mask_binary):
     """
-    Measures crack pixel width using morphological skeletonization and
-    95th-percentile distance transform sampling along the medial axis.
+    Measures crack pixel width using morphological thinning and
+    percentile distance transform sampling along the medial axis.
     Returns 0.0, [] if no foreground pixels exist in the mask.
     """
+    # Defensive casting to uint8 binary mask if float array containing NaN/Inf is passed
+    if not isinstance(mask_binary, np.ndarray):
+        logger.error("Input mask must be a numpy ndarray", extra={"input_type": str(type(mask_binary))})
+        return 0.0, []
+
+    # Clean NaNs/Infs from input if it is a float array
+    if np.issubdtype(mask_binary.dtype, np.floating):
+        mask_binary = np.nan_to_num(mask_binary, nan=0.0, posinf=0.0, neginf=0.0)
+        
+    # Convert mask to uint8 binary 0/255 for cv2 processing
+    if mask_binary.dtype != np.uint8:
+        mask_binary = (mask_binary > 0).astype(np.uint8) * 255
+    else:
+        # Ensure it is strictly binary (0 or 255)
+        _, mask_binary = cv2.threshold(mask_binary, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
     if cv2.countNonZero(mask_binary) == 0:
+        logger.info("Empty mask passed to measure_crack_width, returning 0.0")
         return 0.0, []
     
-    # 1. Compute distance transform on the binary mask
+    # 1. Compute distance transform on the binary mask and clean NaN/Inf output defensively
     dist_transform = cv2.distanceTransform(mask_binary, cv2.DIST_L2, 5)
+    dist_transform = np.nan_to_num(dist_transform, nan=0.0, posinf=0.0, neginf=0.0)
     
-    # 2. Skeletonize the binary mask to extract a 1-pixel medial axis
-    mask_bool = mask_binary > 0
-    skeleton = skeletonize(mask_bool)
+    # 2. Skeletonize the binary mask using native OpenCV thinning
+    skeleton = cv2.ximgproc.thinning(mask_binary)
     
     # 3. Extract distance transform values strictly along the skeleton
-    skeleton_distances = dist_transform[skeleton]
+    skeleton_distances = dist_transform[skeleton > 0]
     
     if skeleton_distances.size == 0:
+        logger.info("No skeleton points found after thinning")
         contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         return 0.0, contours
     
-    # 4. Sort and drop top 5% as outliers, then take the 95th percentile
+    # 4. Sort and drop top outliers using PERCENTILE_CUTOFF
     sorted_distances = np.sort(skeleton_distances)
-    cutoff_index = int(len(sorted_distances) * 0.95)
+    cutoff_index = int(len(sorted_distances) * PERCENTILE_CUTOFF)
     if cutoff_index < 1:
         cutoff_index = len(sorted_distances)
     trimmed = sorted_distances[:cutoff_index]
-    p95_radius = float(trimmed[-1]) if len(trimmed) > 0 else 0.0
+    target_radius = float(trimmed[-1]) if len(trimmed) > 0 else 0.0
     
-    # 5. Multiply the 95th-percentile radius by 2.0 to get the diameter (pixel width)
-    pixel_width = round(p95_radius * 2.0, 2)
+    # 5. Multiply the target percentile radius by WIDTH_MULTIPLIER to get the diameter (pixel width)
+    pixel_width = round(target_radius * WIDTH_MULTIPLIER, 2)
     
     contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    logger.info(
+        "Crack width measured successfully",
+        extra={
+            "pixel_width": pixel_width,
+            "target_radius": target_radius,
+            "percentile_cutoff": PERCENTILE_CUTOFF,
+            "width_multiplier": WIDTH_MULTIPLIER,
+            "skeleton_points_count": len(skeleton_distances)
+        }
+    )
     return pixel_width, contours

@@ -1,8 +1,7 @@
 streamlit
-opencv-python-headless
+opencv-contrib-python-headless
 ultralytics-opencv-headless
 pillow
 reportlab
 psycopg2-binary
 folium
-scikit-image
