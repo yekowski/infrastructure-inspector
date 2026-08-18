@@ -1,0 +1,9 @@
+.git
+__pycache__
+.env
+venv
+.venv
+*.pyc
+test_docker.sh
+images/
+tests/ground_truth/
