@@ -16,6 +16,14 @@ Welcome to the **VisionInspect AI** repository. This file serves as the global r
 - **Human-in-the-Loop (HITL) Safety Gate**: Any AI prediction with less than 75% confidence (`confidence_pct < 75%`) MUST immediately halt automated ticket generation and route the defect to a manual review queue (`Requires Manual Review`).
 - **Defensive Calibration**: Standardize GSD scale math using EXIF camera photogrammetry where possible. If EXIF data is missing, incomplete, or returns `SubjectDistance = 0`, the system must fall back defensively to a hardcoded default macro scale of `0.1` mm/px to prevent mathematical hallucinations.
 
+- **No Bounding-Box Tracking for Video**: Conventional multi-object trackers (ByteTrack, BoT-SORT, Kalman filters, DeepSORT) are **strictly prohibited** for crack and spalling inspection in video streams. These trackers rely on bounding-box IoU and aspect-ratio consistency across frames — assumptions that catastrophically fail for structural cracks, which are thin, branching, topological features whose bounding boxes collapse, merge, and fragment unpredictably between frames. Any agent generating tracker-based code for defect video analysis must be rejected at code review.
+- **Spatial Canvas Registration (Video)**: For video-based inspection, the system must track the **camera's movement** rather than the defect. Each sampled frame's YOLO segmentation mask must be warped onto a persistent 2D global coordinate space (the "Spatial Canvas") using image registration (SIFT keypoint matching → homography matrix → `cv2.warpPerspective`). Defect measurement is performed once on the fused canvas, not per-frame.
+- **Streaming Memory Discipline**: Loading an entire video into memory is **strictly prohibited**. Video files must be opened via `cv2.VideoCapture` and processed frame-by-frame in a streaming iterator. To limit compute and memory, frames must be sampled at a configurable rate (default: 3–5 FPS from the source framerate) rather than processing every frame.
+- **Dynamic Canvas Bounds**: Static padded canvases (e.g., a fixed 3x frame size) are **strictly prohibited** due to the risk of edge truncation or "infinite pan" Out-Of-Memory (OOM) crashes. The Global Canvas must initialize at native frame dimensions and dynamically expand (using `cv2.copyMakeBorder`) only when projected frame coordinates approach canvas boundaries.
+- **Perspective Skew Rejection**: The 2D homography registration pipeline must analyze matrix decomposition metrics (e.g. perspective terms H2,0, H2,1 and condition numbers) to explicitly reject frames exhibiting severe 3D tilt, out-of-plane rotation, or extreme trapezoidal perspective skew that would distort 2D planar canvas measurements.
+- **Spur-Pruning Requirement for Crack Length**: Naive pixel-counting on raw skeletonized masks is **strictly prohibited** for crack length calculations. Secondary morphological noise creates micro-spurs and false bifurcation stubs that catastrophically inflate length estimates. All length calculations must perform topological graph extraction and spur-pruning (removing terminal branch stubs shorter than a minimum pixel threshold) prior to summing Euclidean and diagonal (√2) step distances.
+- **UI-Driven Structural Context**: Attempting to use YOLO object detection to classify macro-structural elements (e.g. distinguishing beams, columns, abutments, or mid-span vs. support joints) from close-up inspection photos is **strictly prohibited**. Close-up defect photographs lack the field-of-view (FoV) and spatial context required for reliable structural element classification. Structural context and spatial placement tags must be collected via human-in-the-loop (HITL) UI manual annotation.
+
 ---
 
 ## 3. Target Directory & Module Structure
@@ -40,7 +48,8 @@ infrastructure-inspector/
 ├── calibration/              # EXIF parsing, camera lookup, photogrammetry GSD calculation, and Distance Transform math
 ├── database/                 # PostGIS triggers, geospatial defect registration (GPS), and temporal crack growth tracking
 ├── pipeline/                 # Execution orchestrator connecting ingestion, validation, and output generation
-└── ui/                       # Dashboard interface and HITL review workflows
+├── ui/                       # Dashboard interface and HITL review workflows
+└── video/                    # Video ingestion, frame sampling, spatial registration, and canvas fusion
 ```
 
 ---
@@ -100,6 +109,20 @@ When implementing or refactoring system functions, you must adhere to the follow
   4. **GPS Coordinates** (latitude and longitude)
   5. **Severity** (e.g. `"Minor"`, `"Moderate"`, `"Severe"`, `"None"`)
   6. **Action Priority** (e.g. `"Low"`, `"Medium"`, `"High"`, `"None"`)
+
+### Video Pipeline Code Constraints
+When implementing video processing functions in the `/video` module, agents must additionally obey:
+- **Frame Iterator Pattern**: Video frames must be yielded one-at-a-time from a generator function wrapping `cv2.VideoCapture`. Accumulating decoded frames into a list or array is forbidden.
+- **Dual-Path Separation**: Each sampled frame must be processed through two isolated paths — a **Semantic Path** (YOLO inference → binary mask) and a **Spatial Path** (grayscale conversion → keypoint extraction → descriptor matching). These paths must not share mutable state.
+- **Homography Validation**: Before applying `cv2.warpPerspective`, validate the homography matrix: require a minimum inlier count (configured via `MIN_HOMOGRAPHY_INLIERS`, default: `10`) and verify the determinant is within a sane range (`0.1 < |det(H)| < MAX_HOMOGRAPHY_DET_VARIANCE`, default: `10.0`). Both thresholds are configurable via environment variables in `config.py`. If validation fails, skip the frame rather than warping with a degenerate matrix.
+- **Perspective Skew Validation**: In addition to determinant and inlier checks, inspect the homography perspective components |H2,0| and |H2,1|. If perspective projection terms exceed `MAX_PERSPECTIVE_SKEW` (default: `0.001`), reject the matrix as a 3D tilt degenerate.
+- **Dynamic Canvas Expansion**: Prior to warping, transform the incoming frame's bounding corners via H_cumulative. If any corner falls outside active canvas bounds, pad the Global Canvas using `cv2.copyMakeBorder()` and apply the corresponding translation offset to H_cumulative.
+- **Canvas Fusion is Append-Only**: The global Spatial Canvas must be updated via bitwise OR (`cv2.bitwise_or`). Overwriting or clearing the canvas between frames is prohibited — each frame's warped mask must accumulate into the persistent canvas.
+
+### Frontend & UI Constraints (Streamlit)
+When implementing or refactoring dashboard components in `app.py`:
+- **Streamlit State Management**: Agents modifying `app.py` must persist all processing results (images, JSON metrics, video summary payloads) in `st.session_state` to prevent data loss during UI reruns.
+- **Disk Hygiene**: Any uploaded files (e.g., videos or temporary inspection images) written to disk for processing MUST be wrapped in a `try...finally` block to guarantee `os.remove()` is called immediately after processing, preventing server storage leaks.
 
 ---
 

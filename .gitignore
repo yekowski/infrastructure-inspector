@@ -77,6 +77,8 @@ inspections_map.html
 ticket_*.pdf
 annotated_*.jpg
 annotated_*.png
+debug_fused_canvas.png
+debug_skeleton.png
 tests/ground_truth/
 
 # Local Datasets & Training Output

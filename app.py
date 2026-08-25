@@ -7,8 +7,14 @@ from datetime import datetime
 import math
 import base64
 import io
+import tempfile
 from PIL import Image, ImageOps
 import streamlit as st
+
+# Add project root to sys.path for direct imports
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+if WORKSPACE_DIR not in sys.path:
+    sys.path.insert(0, WORKSPACE_DIR)
 
 # ── CCv2 inline drawable-line component ─────────────────────────────────────
 # Users click two points on the inspection image to define a calibration line.
@@ -54,11 +60,9 @@ export default function(component) {
         clicks = [{ x, y }];
       }
 
-      // Redraw
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, data.canvasWidth, data.canvasHeight);
 
-      // Draw dots
       for (const pt of clicks) {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
@@ -123,7 +127,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYZE_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/analyze_image.py")
 LOG_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/log_inspection.py")
 TICKET_SCRIPT = os.path.join(WORKSPACE_DIR, ".agents/skills/inspector/scripts/generate_ticket.py")
@@ -148,45 +151,42 @@ def load_env_vars():
 st.markdown("""
     <div style="background-color:#1A365D;padding:15px;border-radius:10px;margin-bottom:20px;">
         <h1 style="color:white;margin:0;font-family:Arial,sans-serif;">Geospatial Infrastructure Inspector</h1>
-        <p style="color:#E2E8F0;margin:5px 0 0 0;">Human-in-the-Loop (HITL) Workflow, Quality Control, and PostGIS Mapping</p>
+        <p style="color:#E2E8F0;margin:5px 0 0 0;">Human-in-the-Loop (HITL) Workflow, Multi-Modal Video Canvas, and PostGIS Mapping</p>
     </div>
 """, unsafe_allow_html=True)
 
 # Define Tabs
-tab1, tab2 = st.tabs(["📸 Inspection Intake (HITL)", "🗺️ Geospatial Dashboard"])
+tab1, tab2, tab3 = st.tabs([
+    "📸 Single Image Inspection (HITL)",
+    "🎥 Video Inspection (Spatial Canvas)",
+    "🗺️ Geospatial Dashboard"
+])
 
+# ── TAB 1: Single Image Inspection ──────────────────────────────────────────
 with tab1:
     st.header("Civil Engineering Inspection Photo Analysis & HITL Verification")
     st.write("Upload structural photographs of concrete or masonry to compute sub-millimeter Crack Opening Displacement (COD), uncertainty bounds, EXIF GPS coordinates, and overlay annotations.")
     
-    # Optional calibration input
     ref_marker_mm = st.number_input("Optional Physical Reference Marker Width (mm)", min_value=0.0, max_value=200.0, value=0.0, step=1.0, help="Specify if a reference calibration target is present in frame.")
-    
-    uploaded_file = st.file_uploader("Upload Inspection Photograph", type=["jpg", "jpeg", "png"])
+    uploaded_file = st.file_uploader("Upload Inspection Photograph", type=["jpg", "jpeg", "png"], key="img_uploader")
     
     if uploaded_file is not None:
-        # Save temporary image file
         temp_dir = "/tmp/inspector_uploads"
         os.makedirs(temp_dir, exist_ok=True)
         temp_path = os.path.join(temp_dir, uploaded_file.name)
         with open(temp_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # --- Image Pre-processing: EXIF Transpose + Downsample ---
+        # Image Pre-processing: EXIF Transpose + Downsample
         MAX_DIMENSION = 1600
         img_preprocess = Image.open(temp_path)
-        
-        # Fix mobile orientation: apply EXIF rotation tag before any processing
         img_preprocess = ImageOps.exif_transpose(img_preprocess)
         
         orig_w, orig_h = img_preprocess.size
         needs_save = False
         
         if max(orig_w, orig_h) > MAX_DIMENSION:
-            # Preserve EXIF metadata (GPS coordinates are critical for the pipeline)
             exif_data = img_preprocess.info.get("exif", None)
-            
-            # Calculate new dimensions preserving aspect ratio
             if orig_w >= orig_h:
                 new_w = MAX_DIMENSION
                 new_h = int(orig_h * (MAX_DIMENSION / orig_w))
@@ -196,10 +196,8 @@ with tab1:
             
             img_preprocess = img_preprocess.resize((new_w, new_h), Image.LANCZOS)
             needs_save = True
-            
             st.caption(f"📐 Image downsampled: {orig_w}×{orig_h} → {new_w}×{new_h} px (max {MAX_DIMENSION}px to stay within memory limits)")
         else:
-            # Even if no resize needed, still save to bake in the EXIF transpose
             exif_data = img_preprocess.info.get("exif", None)
             needs_save = True
         
@@ -210,31 +208,26 @@ with tab1:
             img_preprocess.save(temp_path, **save_kwargs)
         
         img_preprocess.close()
-        # --- End Pre-processing ---
             
         run_analysis = False
         computed_gsd = None
         
         if ref_marker_mm > 0.0:
-            # Calibration mode active: show canvas
             st.markdown("### :material/straighten: Interactive scale calibration")
             st.markdown("Click **two points** on the reference marker to define a calibration line.")
             
             img = Image.open(temp_path)
             orig_w, orig_h = img.size
             
-            # Dynamic canvas sizing based on actual image aspect ratio
             display_width = min(800, orig_w)
             scale_factor = display_width / orig_w
             display_height = int(orig_h * scale_factor)
             
-            # Encode image as base64 data URL for the canvas background
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             image_src = f"data:image/jpeg;base64,{b64}"
             
-            # Read any previously-set line from session state
             CANVAS_KEY = "calibration_canvas"
             canvas_state = st.session_state.get(CANVAS_KEY, {})
             prev_line = canvas_state.get("line", None)
@@ -251,7 +244,6 @@ with tab1:
                 on_line_change=lambda: None,
             )
             
-            # Read the line measurement back from session state
             canvas_state = st.session_state.get(CANVAS_KEY, {})
             line_data = canvas_state.get("line", None)
             
@@ -280,8 +272,6 @@ with tab1:
                 st.code(res.stderr)
             else:
                 stdout_str = res.stdout.strip()
-                
-                # Extract JSON Payload line
                 json_data = {}
                 for line in stdout_str.splitlines():
                     if line.startswith("JSON PAYLOAD:"):
@@ -290,7 +280,6 @@ with tab1:
                         except Exception as e:
                             st.warning(f"Could not parse JSON payload: {e}")
                             
-                # Side-by-side image display
                 st.subheader("Visual Inspection Comparison")
                 col1, col2 = st.columns(2)
                 
@@ -310,7 +299,6 @@ with tab1:
                 if json_data:
                     confidence = float(json_data.get("confidence_pct", 0.0))
                     
-                    # Check Quality Control Gate 1: Confidence Thresholding (< 75%)
                     if confidence < 75.0:
                         st.error(f"⚠️ Low Confidence Detection ({confidence}% < 75.0%). Automated workflow HALTED! Status set to: Requires Manual Review.")
                         json_data["severity"] = "Requires Manual Review"
@@ -358,14 +346,11 @@ with tab1:
                         notes = f"COD Width: {width}mm ±{uncertainty}mm. Spalling Area: {spalling_area} mm². Action: {maintenance_action}"
                     
                     env = load_env_vars()
-                    
                     hitl_col1, hitl_col2 = st.columns(2)
                     
                     with hitl_col1:
-                        # Disable approve button if low confidence
                         disable_approve = (confidence < 75.0)
                         if st.button("✔ Approve & Generate Ticket", disabled=disable_approve, type="primary", use_container_width=True):
-                            # 1. Log DB
                             with st.spinner("Logging to PostGIS database..."):
                                 db_cmd = [
                                     sys.executable, LOG_SCRIPT,
@@ -387,7 +372,6 @@ with tab1:
                                 else:
                                     st.error(f"✘ Database insertion failed: {err_msg}")
                                 
-                            # 2. PDF Ticket
                             with st.spinner("Generating ReportLab PDF work order ticket..."):
                                 pdf_path = os.path.join(WORKSPACE_DIR, f"ticket_{ticket_id}.pdf")
                                 pdf_cmd = [
@@ -461,7 +445,111 @@ with tab1:
                 else:
                     st.code(stdout_str)
 
+
+# ── TAB 2: Video Inspection (Spatial Canvas) ─────────────────────────────────
 with tab2:
+    st.header("Video-Based Spatial Canvas Defect Registration")
+    st.write("Upload continuous structural video feeds (.mp4, .mov, .avi). The camera's motion will be registered using SIFT homography and warped onto a persistent 2D Spatial Canvas for topological defect measurement.")
+    
+    col_v1, col_v2, col_v3 = st.columns(3)
+    with col_v1:
+        v_fps = st.slider("Target Sampling Rate (FPS)", min_value=1, max_value=10, value=3, help="Frames sampled per second from native framerate.")
+    with col_v2:
+        v_conf = st.slider("YOLO Model Confidence Threshold", min_value=0.1, max_value=0.9, value=0.25, step=0.05)
+    with col_v3:
+        v_gsd_input = st.number_input("Explicit GSD Scale (mm/px, 0.0 for default)", min_value=0.0, max_value=5.0, value=0.0, step=0.01)
+
+    video_file = st.file_uploader("Upload Infrastructure Inspection Video", type=["mp4", "mov", "avi"], key="video_uploader")
+    
+    if video_file is not None:
+        st.video(video_file)
+        
+        if st.button("🚀 Process Video Spatial Canvas", type="primary", use_container_width=True):
+            # Strict Disk Hygiene: tempfile wrapped in try...finally block
+            suffix = "." + video_file.name.split(".")[-1] if "." in video_file.name else ".mp4"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                tmp_file.write(video_file.getbuffer())
+                temp_video_path = tmp_file.name
+
+            try:
+                with st.spinner("Processing spatial canvas registration, tracking camera motion, and fusing defect masks..."):
+                    from video.process_video import process_video
+                    
+                    explicit_gsd = v_gsd_input if v_gsd_input > 0.0 else None
+                    summary, defects = process_video(
+                        temp_video_path,
+                        target_fps=v_fps,
+                        conf=v_conf,
+                        gsd=explicit_gsd
+                    )
+                    
+                    # Read generated debug canvas image artifact
+                    canvas_bytes = None
+                    debug_canvas_file = "debug_fused_canvas.png"
+                    if os.path.exists(debug_canvas_file):
+                        with open(debug_canvas_file, "rb") as img_f:
+                            canvas_bytes = img_f.read()
+                            
+                    # Persist results in st.session_state to prevent loss on UI reruns
+                    st.session_state["video_summary"] = summary
+                    st.session_state["video_defects"] = defects
+                    st.session_state["video_canvas_bytes"] = canvas_bytes
+                    st.success("✔ Video Processing Complete!")
+            except Exception as e:
+                st.error(f"Execution Error during video processing: {e}")
+            finally:
+                # Guarantee disk cleanup of uploaded video file
+                if os.path.exists(temp_video_path):
+                    os.remove(temp_video_path)
+
+    # Render Session State Video Results Dashboard
+    if st.session_state.get("video_summary"):
+        summary = st.session_state["video_summary"]
+        defects = st.session_state.get("video_defects", [])
+        canvas_bytes = st.session_state.get("video_canvas_bytes", None)
+        
+        st.divider()
+        st.subheader("Global Spatial Canvas Visualization")
+        
+        if canvas_bytes:
+            st.image(canvas_bytes, caption="Fused 2D Spatial Canvas (All Warped YOLO Defect Masks Accumulated)", use_container_width=True)
+        else:
+            st.warning("Canvas visualization image not found.")
+            
+        st.divider()
+        st.subheader("Video Spatial Canvas Telemetry & Metrics")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Frames Sampled", summary.get("frames_sampled", 0))
+        c2.metric("Camera Registration Rate", f"{summary.get('registration_rate_pct', 0.0)}%")
+        c3.metric("Frames with Defect Detections", summary.get("frames_with_detections", 0))
+        c4.metric("Total Defect Components", summary.get("defects_detected", 0))
+        
+        if defects:
+            st.subheader("Detected Defect Components Breakdown")
+            for d in defects:
+                defect_title = f"Defect Component #{d['defect_id']} — Max Width: {d['crack_width_mm']} mm | Length: {d['crack_length_cm']} cm ({d['orientation']})"
+                with st.expander(defect_title, expanded=True):
+                    m1, m2, m3, m4, m5 = st.columns(5)
+                    m1.metric("Max Width", f"{d['crack_width_mm']} mm", f"±{d['uncertainty_mm']} mm")
+                    m2.metric("Physical Length", f"{d['crack_length_cm']} cm", f"{d['crack_length_mm']} mm")
+                    m3.metric("Orientation Tag", d['orientation'], f"{d.get('orientation_angle_deg', 0.0)}°")
+                    m4.metric("Mean Confidence", f"{d['confidence_pct']}%")
+                    
+                    sev = d['severity']
+                    m5.metric("HITL Severity Status", sev, delta_color="inverse" if sev in ["Severe", "Requires Manual Review"] else "normal")
+                    
+                    if d['confidence_pct'] < 75.0 or sev == "Requires Manual Review":
+                        st.warning("⚠️ Low Mean Model Confidence across video frames (< 75.0%). Routed to HITL Manual Review Queue!")
+                    else:
+                        st.success(f"✔ High Confidence Defect ({d['confidence_pct']}%). Action Priority: {d.get('priority', 'Medium')}")
+                        
+        else:
+            st.info("No structural defects were detected on the fused video canvas.")
+
+
+# ── TAB 3: Geospatial Dashboard ──────────────────────────────────────────────
+with tab3:
     st.header("Geospatial Inspection Map Dashboard")
     st.write("Visual distribution of structural inspections queried from the PostGIS database. Marker icons denote status severity (Red = Severe defect, Green = Completed, Blue = Log only).")
     

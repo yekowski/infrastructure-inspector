@@ -19,6 +19,27 @@ try:
 except (ValueError, TypeError):
     DEFAULT_GSD = 0.1
 
+# Video Pipeline — Homography Validation Thresholds (AGENTS.md §6)
+try:
+    MIN_HOMOGRAPHY_INLIERS = int(os.getenv("MIN_HOMOGRAPHY_INLIERS", "10"))
+except (ValueError, TypeError):
+    MIN_HOMOGRAPHY_INLIERS = 10
+
+try:
+    MAX_HOMOGRAPHY_DET_VARIANCE = float(os.getenv("MAX_HOMOGRAPHY_DET_VARIANCE", "10.0"))
+except (ValueError, TypeError):
+    MAX_HOMOGRAPHY_DET_VARIANCE = 10.0
+
+try:
+    MAX_PERSPECTIVE_SKEW = float(os.getenv("MAX_PERSPECTIVE_SKEW", "0.001"))
+except (ValueError, TypeError):
+    MAX_PERSPECTIVE_SKEW = 0.001
+
+try:
+    MIN_SPUR_LENGTH_PX = int(os.getenv("MIN_SPUR_LENGTH_PX", "10"))
+except (ValueError, TypeError):
+    MIN_SPUR_LENGTH_PX = 10
+
 
 # 2. Structured JSON Logging Setup
 class JsonFormatter(logging.Formatter):
